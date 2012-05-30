@@ -4,8 +4,8 @@ from joyce.comet import CometJoyceClient
 from joyce.base import JoyceChannel
 from mirte.threadPool import ThreadPool
 
-DEFAULT_HOST = 'devslet.sci.kun.nl'
-DEFAULT_PORT = 1337
+DEFAULT_HOST = 'localhost'
+DEFAULT_PORT = 8080
 DEFAULT_LS_CHARSET = '1234567890qwertyuiopasdfghjklzxcvbnm '
 
 import os
