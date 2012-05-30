@@ -365,4 +365,11 @@ class Marietje:
 
 if __name__ == '__main__':
         logging.basicConfig(level=logging.DEBUG)
-        m = Marietje()
+        def print_queue():
+                print "Queue received"
+        def print_songs():
+                print "Songs received"
+        def print_playing():
+                print "Playing received"
+        m = Marietje("marietje", print_queue, print_songs, print_playing)
+        m.start_fetch()
