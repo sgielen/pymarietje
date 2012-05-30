@@ -1,5 +1,8 @@
 from __future__ import with_statement
 import threading
+from joyce.comet import CometJoyceClient
+from joyce.base import JoyceChannel
+from mirte.threadPool import ThreadPool
 
 DEFAULT_HOST = 'devslet.sci.kun.nl'
 DEFAULT_PORT = 1337
