@@ -3,6 +3,10 @@ import threading
 from joyce.comet import CometJoyceClient
 from joyce.base import JoyceChannel
 from mirte.threadPool import ThreadPool
+from mirte.core import Module
+import mirte
+import mirte.main
+import mirte.mirteFile
 
 DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 8080
@@ -24,53 +28,60 @@ class AlreadyQueuedException(MarietjeException):
 class AlreadyFetchingException(Exception):
         pass
 
-class RawMarietjeChannelClass(JoyceChannel):
-        def __init__(self, client, *args, **kwargs):
-                super(RawMarietjeChannelClass, self).__init__(*args, **kwargs)
-                self.client = client
-                return
-        def handle_message(self, data):
-                print data
+class MarietjeClientChannel(JoyceChannel):
+        def __init__(self, server, *args, **kwargs):
+                super(MarietjeClientChannel, self).__init__(*args, **kwargs)
+                self.s = server
+                self.l = self.s.l
+                self.partialMedia = []
+                self._partialMedia = []
+                self._partialMediaSize = None
 
-class RawMarietje(CometJoyceClient):
+        def handle_message(self, data):
+                if data.get('type') == 'media_part':
+                        with self.s.on_tracks_retrieved:
+                                for media in data.get('part'):
+                                        self._partialMedia.append(media)
+                                if not self._partialMediaSize is None and self._partialMediaSize == len(self._partialMedia):
+                                        self.partialMedia = self._partialMedia
+                                        self._partialMediaSize = None
+                                        self._partialMedia = []
+                                        self.s.on_tracks_retrieved.notify()
+                elif data.get('type') == 'media':
+                        with self.s.on_tracks_retrieved:
+                                self._partialMediaSize = data.get('count')
+                                # Sometimes, media arrives before the media_parts
+                                # In that case, wait for the rest of the media_parts
+                                if len(self._partialMedia) == self._partialMediaSize:
+                                        self.partialMedia = self._partialMedia
+                                        self._partialMediaSize = None
+                                        self._partialMedia = []
+                                        self.s.on_tracks_retrieved.notify()
+                elif data.get('type') == 'welcome':
+                        pass
+                else:
+                        print "Data of type: ", data.get('type')
+                        print "========================="
+                        print data
+                        print "========================="
+
+class MarietjeClient(Module):
         """ Almost direct interface to the Marietje protocol """
 
-        def __init__(self, host=DEFAULT_HOST, port=DEFAULT_PORT, path=DEFAULT_PATH):
-                # Make some stub objects so we don't need to use Mirte ourselves
-                def _settings():
-                        return None
-                class logger:
-                        def name():
-                                return '__logger__'
-                        def warn(self, message):
-                                print message
-                        def debug(self, message, extra=None):
-                                print message
-                                print extra
-                        def error(self, message, exc_info=None, extra=None):
-                                print message
-                                print exc_info
-                                print extra
-                settings = {'items':_settings}
-                super(RawMarietje, self).__init__(settings, logger())
-                self.host = host
-                self.port = port
-                self.path = path
-                self.channel_class = self._channel_constructor
-                self.threadPool = ThreadPool(settings, logger())
-                self.threadPool.minFree = 1
-                self.threadPool.min = 1
-                self.threadPool.maxFree = 10
-                self.threadPool.max = 10
-                self.threadPool.start()
+        def __init__(self, settings, l):
+                super(MarietjeClient, self).__init__(settings, l)
+                def _channel_class(*args, **kwargs):
+                        return MarietjeClientChannel(self, *args, **kwargs)
+                self.channel = self.joyceClient.create_channel(
+                        channel_class=_channel_class)
 
-        def _channel_constructor(self, *args, **kwargs):
-                return RawMarietjeChannelClass(self, *args, **kwargs);
-        
+                self.on_queue_retrieved = threading.Condition()
+                self.on_playing_retrieved = threading.Condition()
+                self.on_tracks_retrieved = threading.Condition()
+
         def check_login(self, username):
                 """ Checks whether <username> is allowed on marietje """
-                c = self._connect()
-                c.send_message({
+                self.channel.send_message({
                         'type': 'login',
                         'username': username,
                         'hash': None, # TODO
@@ -92,16 +103,18 @@ class RawMarietje(CometJoyceClient):
         def list_tracks(self):
                 """ Returns a list of
                      (trackId, artist, title, flag) """
-                c = self._connect()
-                c.send_message({
-                        'type': 'list_media',
-                })
-                # TODO: wait until channel is done receiving, so we can return
-        
+                with self.on_tracks_retrieved:
+                        self.channel.send_message({'type': 'list_media'})
+                        self.on_tracks_retrieved.wait()
+                        partialMedia = self.channel.partialMedia
+                        res = []
+                        for media in self.channel.partialMedia:
+                                res.append((media.get('key'), media.get('artist'), media.get('title'), None))
+                return res
+
         def request_track(self, trackId, user):
                 """ Requests the song <trackId> under the username <user> """
-                c = self._connect()
-                c.send_message({
+                self.channel.send_message({
                         'type': 'request',
                         'mediaKey': trackId,
                 })
@@ -112,21 +125,24 @@ class RawMarietje(CometJoyceClient):
                     <artist> - <title> as <user> """
                 raise NotImplemented()
 
-        def _connect(self):
-                c = self.create_channel()
-                return c
-
 class Marietje:
         """ A more convenient interface to Marietje.
             NOTE, even though there is a ton of threading.* goodness in here,
                   this class is not to be used by several threads at a time """
         def __init__(self, username, queueCb=None, songCb=None, playingCb=None,
-                        host=DEFAULT_HOST, port=DEFAULT_PORT,
+                        host=DEFAULT_HOST, port=DEFAULT_PORT, path=DEFAULT_PATH,
                         charset=DEFAULT_LS_CHARSET):
                 """ <xCb> is a callback for when x is fetched;
                     <charset> is used as charset for the livesearch look-up
                     tree. """
-                self.raw = RawMarietje(host, port)
+                self.mirte_manager = m = mirte.get_a_manager()
+                mirte.mirteFile.load_mirteFile('joyce/comet', m)
+                mirte.mirteFile.load_mirteFile('marietje', m)
+                m.create_instance('joyceClient',
+                        'cometJoyceClient',
+                        {'host': host, 'port': port, 'path': path})
+                self.client = m.create_instance('marietjeClient',
+                        'marietjeClient', {'joyceClient':'joyceClient'})
                 self.queueCb = queueCb
                 self.songCb = songCb
                 self.playingCb = playingCb
@@ -209,7 +225,7 @@ class Marietje:
                 try:
                         starttime = time.time()
                         songs = dict()
-                        for id, artist, title, flag in self.raw.list_tracks():
+                        for id, artist, title, flag in self.client.list_tracks():
                                 songs[id] = (artist, title)
                         sLoadTime = time.time() - starttime
                         starttime = time.time()
@@ -235,12 +251,12 @@ class Marietje:
                                 self.songs_fetching = False
                                 self.songs_cond.notifyAll()
                         if not self.songCb is None:
-                                self.songCb()
+                                self.songCb(self)
         
         def run_fetch_queue(self):
                 try:
                         starttime = time.time()
-                        queue_totalTime, queue = self.raw.get_queue()
+                        queue_totalTime, queue = self.client.get_queue()
                         qLoadTime = time.time() - starttime
                         with self.queue_cond:
                                 self.queue_totalTime = queue_totalTime
@@ -257,12 +273,12 @@ class Marietje:
                                 self.queue_fetching = False
                                 self.queue_cond.notifyAll()
                         if not self.queueCb is None:
-                                self.queueCb()
+                                self.queueCb(self)
 
         def run_fetch_playing(self):
                 try:
                         starttime = time.time()
-                        nowPlaying = self.raw.get_playing()
+                        nowPlaying = self.client.get_playing()
                         pLoadTime = time.time() - starttime
                         playingRetreivedTime = starttime + 0.5 * pLoadTime
                         queueOffsetTime = nowPlaying[1] - (nowPlaying[3] - 
@@ -283,7 +299,7 @@ class Marietje:
                                 self.playing_fetching = False
                                 self.playing_cond.notifyAll()
                         if not self.playingCb is None:
-                                self.playingCb()
+                                self.playingCb(self)
         
         def cache_songs_to(self, f):
                 """ Caches the songs and its look up structures to the given
@@ -313,7 +329,7 @@ class Marietje:
                         self.songs_fetched = True
                         self.sCacheLoadTime = sLoadTime
                 if not self.songCb is None:
-                        self.songCb(from_cache=True)
+                        self.songCb(self, from_cache=True)
         
         def query(self, q):
                 """ Performs a query for all songs that have <q> in their title
@@ -328,20 +344,23 @@ class Marietje:
 
         def request_track(self, track_id):
                 """ Requests the track with id <track_id> """
-                self.raw.request_track(track_id, self.username)
+                self.client.request_track(track_id, self.username)
         
         def upload_track(self, artist, title, size, f):
                 """ Uploads a track in <f> with <size> to marietje as
                     <artist> - <title> """
-                self.raw.upload_track(artist, title, self.username, size, f)
+                self.client.upload_track(artist, title, self.username, size, f)
 
 if __name__ == '__main__':
         logging.basicConfig(level=logging.DEBUG)
-        def print_queue():
+        def print_queue(marietje):
                 print "Queue received"
-        def print_songs():
-                print "Songs received"
-        def print_playing():
+                print marietje.queue
+        def print_songs(marietje):
+                print len(marietje.songs), "songs received"
+        def print_playing(marietje):
                 print "Playing received"
+                print marietje.nowPlaying
+
         m = Marietje("marietje", print_queue, print_songs, print_playing)
         m.start_fetch()
