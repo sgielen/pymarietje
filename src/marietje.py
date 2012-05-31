@@ -107,7 +107,7 @@ class MarietjeClient(Module):
                         for request in requests:
                                 mediaKey = request.get('mediaKey')
                                 # TODO: go from mediaKey to artist, title, length
-                                queue.append(('Queue artist', 'Queue title', 100, None))
+                                queue.append(('Queue artist', 'Queue title', 100, 'marietje'))
                         self.channel.send_message({'type':'unfollow','which':['requests']})
                 # TODO: get time left for the current song
                 return (0, queue)
