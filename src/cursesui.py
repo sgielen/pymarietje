@@ -927,7 +927,7 @@ def main():
                           default='zuidslet.science.ru.nl',
                           help="Connect to HOST", metavar='HOST')
         parser.add_option('-p', '--port', dest='port',
-                          default='1337', type='int',
+                          default='8080', type='int',
                           help="Connect on PORT", metavar='PORT')
         parser.add_option('-u', '--userdir', dest='userdir',
                           default='.pymarietje',
