@@ -59,6 +59,10 @@ class MarietjeClientChannel(JoyceChannel):
                                         self.s.on_tracks_retrieved.notify()
                 elif data.get('type') == 'welcome':
                         pass
+                elif data.get('type') == 'playing':
+                        with self.s.on_playing_retrieved:
+                                self.nowPlaying = data.get('playing')
+                                self.s.on_playing_retrieved.notify()
                 else:
                         print "Data of type: ", data.get('type')
                         print "========================="
@@ -98,7 +102,13 @@ class MarietjeClient(Module):
                     current playing's song <id> and <length>, the
                     current servers <time> and the starting time <timeStamp>
                     of the song """
-                # TODO: follow 'playing', then wait for first update
+                with self.on_playing_retrieved:
+                        self.channel.send_message({'type':'follow','which':['playing']})
+                        self.on_playing_retrieved.wait()
+                        nowPlaying = self.channel.nowPlaying
+                        nowPlaying = (nowPlaying.get('mediaKey'), int(time.time()), nowPlaying.get('endTime') - nowPlaying.get('serverTime'), nowPlaying.get('serverTime'))
+                        self.channel.send_message({'type':'unfollow','which':['playing']})
+                return nowPlaying
 
         def list_tracks(self):
                 """ Returns a list of
