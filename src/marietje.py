@@ -277,7 +277,7 @@ class Marietje:
                                 self.songs_fetching = False
                                 self.songs_cond.notifyAll()
                         if not self.songCb is None:
-                                self.songCb(self)
+                                self.songCb()
         
         def run_fetch_queue(self):
                 try:
@@ -299,7 +299,7 @@ class Marietje:
                                 self.queue_fetching = False
                                 self.queue_cond.notifyAll()
                         if not self.queueCb is None:
-                                self.queueCb(self)
+                                self.queueCb()
 
         def run_fetch_playing(self):
                 try:
@@ -325,7 +325,7 @@ class Marietje:
                                 self.playing_fetching = False
                                 self.playing_cond.notifyAll()
                         if not self.playingCb is None:
-                                self.playingCb(self)
+                                self.playingCb()
         
         def cache_songs_to(self, f):
                 """ Caches the songs and its look up structures to the given
@@ -355,7 +355,7 @@ class Marietje:
                         self.songs_fetched = True
                         self.sCacheLoadTime = sLoadTime
                 if not self.songCb is None:
-                        self.songCb(self, from_cache=True)
+                        self.songCb(from_cache=True)
         
         def query(self, q):
                 """ Performs a query for all songs that have <q> in their title
