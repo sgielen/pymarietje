@@ -63,6 +63,10 @@ class MarietjeClientChannel(JoyceChannel):
                         with self.s.on_playing_retrieved:
                                 self.nowPlaying = data.get('playing')
                                 self.s.on_playing_retrieved.notify()
+                elif data.get('type') == 'requests':
+                        with self.s.on_queue_retrieved:
+                                self.requests = data.get('requests')
+                                self.s.on_queue_retrieved.notify()
                 else:
                         print "Data of type: ", data.get('type')
                         print "========================="
@@ -95,7 +99,18 @@ class MarietjeClient(Module):
         def get_queue(self):
                 """ Returns ( timeLeft, queue ) where queue is a list of
                     ( artist, title, length, requestedBy ) tuples. """
-                # TODO: follow 'requests', then wait for first update
+                with self.on_queue_retrieved:
+                        self.channel.send_message({'type':'follow','which':['requests']})
+                        self.on_queue_retrieved.wait()
+                        requests = self.channel.requests
+                        queue = []
+                        for request in requests:
+                                mediaKey = request.get('mediaKey')
+                                # TODO: go from mediaKey to artist, title, length
+                                queue.append(('Queue artist', 'Queue title', 100, None))
+                        self.channel.send_message({'type':'unfollow','which':['requests']})
+                # TODO: get time left for the current song
+                return (0, queue)
         
         def get_playing(self):
                 """ Return (id, timeStamp, length, time) with the
@@ -106,6 +121,7 @@ class MarietjeClient(Module):
                         self.channel.send_message({'type':'follow','which':['playing']})
                         self.on_playing_retrieved.wait()
                         nowPlaying = self.channel.nowPlaying
+                        # TODO: go from mediaKey to timestamp, length and time
                         nowPlaying = (nowPlaying.get('mediaKey'), int(time.time()), nowPlaying.get('endTime') - nowPlaying.get('serverTime'), nowPlaying.get('serverTime'))
                         self.channel.send_message({'type':'unfollow','which':['playing']})
                 return nowPlaying
