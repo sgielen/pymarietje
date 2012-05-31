@@ -6,6 +6,7 @@ from mirte.threadPool import ThreadPool
 
 DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 8080
+DEFAULT_PATH = '/'
 DEFAULT_LS_CHARSET = '1234567890qwertyuiopasdfghjklzxcvbnm '
 
 import os
@@ -23,126 +24,97 @@ class AlreadyQueuedException(MarietjeException):
 class AlreadyFetchingException(Exception):
         pass
 
-class RawMarietje:
+class RawMarietjeChannelClass(JoyceChannel):
+        def __init__(self, client, *args, **kwargs):
+                super(RawMarietjeChannelClass, self).__init__(*args, **kwargs)
+                self.client = client
+                return
+        def handle_message(self, data):
+                print data
+
+class RawMarietje(CometJoyceClient):
         """ Almost direct interface to the Marietje protocol """
 
-        def __init__(self, host=DEFAULT_HOST, port=DEFAULT_PORT):
+        def __init__(self, host=DEFAULT_HOST, port=DEFAULT_PORT, path=DEFAULT_PATH):
+                # Make some stub objects so we don't need to use Mirte ourselves
+                def _settings():
+                        return None
+                class logger:
+                        def name():
+                                return '__logger__'
+                        def warn(self, message):
+                                print message
+                        def debug(self, message, extra=None):
+                                print message
+                                print extra
+                        def error(self, message, exc_info=None, extra=None):
+                                print message
+                                print exc_info
+                                print extra
+                settings = {'items':_settings}
+                super(RawMarietje, self).__init__(settings, logger())
                 self.host = host
                 self.port = port
+                self.path = path
+                self.channel_class = self._channel_constructor
+                self.threadPool = ThreadPool(settings, logger())
+                self.threadPool.minFree = 1
+                self.threadPool.min = 1
+                self.threadPool.maxFree = 10
+                self.threadPool.max = 10
+                self.threadPool.start()
+
+        def _channel_constructor(self, *args, **kwargs):
+                return RawMarietjeChannelClass(self, *args, **kwargs);
         
         def check_login(self, username):
                 """ Checks whether <username> is allowed on marietje """
-                return self._simple_transaction("LOGIN::USER::%s\n" % username) \
-                                == "LOGIN::SUCCESS\n"
+                c = self._connect()
+                c.send_message({
+                        'type': 'login',
+                        'username': username,
+                        'hash': None, # TODO
+                })
+                # TODO: wait for result
         
         def get_queue(self):
                 """ Returns ( timeLeft, queue ) where queue is a list of
                     ( artist, title, length, requestedBy ) tuples. """
-                s = self._connect()
-                s.send("LIST::QUEUE\n")
-                f = s.makefile()
-                bits = f.readline()[:-1].split('::')
-                if len(bits) != 4 or \
-                   bits[0] != 'TOTAL' or bits[2] != 'TIMELEFT':
-                           raise MarietjeException, \
-                                "Unexpected reply: %s" % '::'.join(bits)
-                total, timeLeft = int(bits[1]), float(bits[3])
-                rl = list()
-                for i in xrange(total):
-                        bits = f.readline()[:-1].split('::')
-                        if len(bits) != 5 or bits[0] != 'SONG':
-                                raise MarietjeException, \
-                                        "Unexpected SONG line: %s" % '::'.join(bits)
-                        artist, title, length, by = bits[1], bits[2], \
-                                                float(bits[3]), bits[4] 
-                        rl.append((artist, title, length, by))
-                s.close()
-                return (timeLeft, rl)
+                # TODO: follow 'requests', then wait for first update
         
         def get_playing(self):
                 """ Return (id, timeStamp, length, time) with the
                     current playing's song <id> and <length>, the
                     current servers <time> and the starting time <timeStamp>
                     of the song """
-                l = self._simple_transaction("LIST::NOWPLAYING\n")
-                bits = l[:-1].split('::')
-                if len(bits) != 8 or bits[0] != 'ID' or bits[2] != 'Timestamp' or \
-                                bits[4] != 'Length' or bits[6] != 'Time':
-                        raise MarietjeException, "Unexpected reply: %s" % l
-                id, timeStamp, length, time = int(bits[1]), float(bits[3]), \
-                                              float(bits[5]), float(bits[7])
-                return (id, timeStamp, length, time)
+                # TODO: follow 'playing', then wait for first update
 
         def list_tracks(self):
                 """ Returns a list of
                      (trackId, artist, title, flag) """
-                s = self._connect()
-                s.send('LIST::ALL')
-                f = s.makefile()
-                bits = f.readline()[:-1].split('::')
-                if len(bits) != 2 or bits[0] != 'TOTAL':
-                        raise MarietjeException, \
-                                "Unexpected reply: %s" % '::'.join(bits)
-                total = int(bits[1])
-                for i in xrange(total):
-                        bits = f.readline()[:-1].split('::')
-                        if len(bits) != 5 or bits[0] != 'SONG':
-                                raise MarietjeException, \
-                                        "Unexpected reply: %s" % '::'.join(bits)
-                        yield (int(bits[1]), bits[2], bits[3], int(bits[4]))
-                s.close()
+                c = self._connect()
+                c.send_message({
+                        'type': 'list_media',
+                })
+                # TODO: wait until channel is done receiving, so we can return
         
         def request_track(self, trackId, user):
                 """ Requests the song <trackId> under the username <user> """
-                s = self._simple_transaction("REQUEST::SONG::%s::USER::%s" % (
-                        trackId, user))
-                if s == 'REQUEST::SUCCESS':
-                        return
-                if s == 'ERROR::Track already in queue':
-                        raise AlreadyQueuedException
-                raise MarietjeException, "Unexpected reply: %s" % s
+                c = self._connect()
+                c.send_message({
+                        'type': 'request',
+                        'mediaKey': trackId,
+                })
+                # TODO: wait until channel is done
 
         def upload_track(self, artist, title, user, size, f):
                 """ Uploads <size> bytes of <f> as the track 
                     <artist> - <title> as <user> """
-                s = self._connect()
-                s.send('REQUEST::UPLOAD::ARTIST::%s::TITLE::%s::USER::%s::SIZE::%s' % (
-                        artist, title, user, size))
-                l = s.recv(50)
-                if l != 'SEND::FILE':
-                        raise MarietjeException, \
-                                "Unexpected reply: %s" % l
-                sent = 0
-                while sent != size:
-                        toSent = size - sent
-                        if toSent > 2048: toSent = 2048
-                        stillToSent = toSent
-                        txt = f.read(stillToSent)
-                        while stillToSent > 0:
-                                stillToSent -= s.send(txt[-stillToSent:])       
-                        sent += toSent
-                l = s.recv(50)
-                if l != 'UPLOAD::SUCCESS':
-                        raise MarietjeException, \
-                                "Unexpected reply: %s" % l
-                s.close()
+                raise NotImplemented()
 
         def _connect(self):
-                s = socket.socket(socket.AF_INET,
-                                  socket.SOCK_STREAM)
-                s.connect((self.host, self.port))
-                return s
-
-        def _simple_transaction(self, msg):
-                s = self._connect()
-                s.send(msg)
-                ret = StringIO()
-                while True:
-                        l = s.recv(2048)
-                        if len(l) == 0: break
-                        ret.write(l)
-                s.close()
-                return ret.getvalue()
+                c = self.create_channel()
+                return c
 
 class Marietje:
         """ A more convenient interface to Marietje.
