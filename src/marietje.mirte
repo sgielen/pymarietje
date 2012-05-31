@@ -1,0 +1,5 @@
+definitions:
+  marietjeClient:
+    implementedBy: marietje.MarietjeClient
+    settings:
+      joyceClient: {type: joyceClient}
