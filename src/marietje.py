@@ -379,14 +379,15 @@ class Marietje:
 
 if __name__ == '__main__':
         logging.basicConfig(level=logging.DEBUG)
-        def print_queue(marietje):
+
+        def print_queue():
                 print "Queue received"
-                print marietje.queue
-        def print_songs(marietje):
-                print len(marietje.songs), "songs received"
-        def print_playing(marietje):
+                print m.queue
+        def print_songs():
+                print len(m.songs), "songs received"
+        def print_playing():
                 print "Playing received"
-                print marietje.nowPlaying
+                print m.nowPlaying
 
         m = Marietje("marietje", print_queue, print_songs, print_playing)
         m.start_fetch()
