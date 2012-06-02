@@ -108,8 +108,8 @@ class MarietjeClient(Module):
                         for request in requests:
                                 media = request.get('media')
                                 requester = DEFAULT_REQUESTER
-                                if not media.get('byKey') is None:
-                                        requester = media.get('byKey')
+                                if not request.get('byKey') is None:
+                                        requester = request.get('byKey')
                                 queue.append((media.get('artist'), media.get('title'), media.get('length'), requester))
                         self.channel.send_message({'type':'unfollow','which':['requests']})
                 return queue
