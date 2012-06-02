@@ -12,6 +12,7 @@ DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 8080
 DEFAULT_PATH = '/'
 DEFAULT_LS_CHARSET = '1234567890qwertyuiopasdfghjklzxcvbnm '
+DEFAULT_REQUESTER = 'marietje'
 
 import os
 import time
@@ -97,20 +98,21 @@ class MarietjeClient(Module):
                 # TODO: wait for result
         
         def get_queue(self):
-                """ Returns ( timeLeft, queue ) where queue is a list of
-                    ( artist, title, length, requestedBy ) tuples. """
+                """ Returns a list of ( artist, title, length, requestedBy )
+                tuples. """
                 with self.on_queue_retrieved:
                         self.channel.send_message({'type':'follow','which':['requests']})
                         self.on_queue_retrieved.wait()
                         requests = self.channel.requests
                         queue = []
                         for request in requests:
-                                mediaKey = request.get('mediaKey')
-                                # TODO: go from mediaKey to artist, title, length
-                                queue.append(('Queue artist', 'Queue title', 100, 'marietje'))
+                                media = request.get('media')
+                                requester = DEFAULT_REQUESTER
+                                if not media.get('byKey') is None:
+                                        requester = media.get('byKey')
+                                queue.append((media.get('artist'), media.get('title'), media.get('length'), requester))
                         self.channel.send_message({'type':'unfollow','which':['requests']})
-                # TODO: get time left for the current song
-                return (0, queue)
+                return queue
         
         def get_playing(self):
                 """ Return (id, timeStamp, length, time) with the
@@ -282,10 +284,9 @@ class Marietje:
         def run_fetch_queue(self):
                 try:
                         starttime = time.time()
-                        queue_totalTime, queue = self.client.get_queue()
+                        queue = self.client.get_queue()
                         qLoadTime = time.time() - starttime
                         with self.queue_cond:
-                                self.queue_totalTime = queue_totalTime
                                 self.queue = queue
                                 self.qLoadTime = qLoadTime
                                 self.queue_fetched = True
