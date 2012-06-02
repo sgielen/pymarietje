@@ -123,8 +123,12 @@ class MarietjeClient(Module):
                         self.channel.send_message({'type':'follow','which':['playing']})
                         self.on_playing_retrieved.wait()
                         nowPlaying = self.channel.nowPlaying
-                        # TODO: go from mediaKey to timestamp, length and time
-                        nowPlaying = (nowPlaying.get('mediaKey'), int(time.time()), nowPlaying.get('endTime') - nowPlaying.get('serverTime'), nowPlaying.get('serverTime'))
+                        media = nowPlaying.get('media')
+                        nowPlaying = (
+                                media.get('key'),
+                                nowPlaying.get('endTime') - media.get('length'),
+                                media.get('length'),
+                                nowPlaying.get('serverTime'))
                         self.channel.send_message({'type':'unfollow','which':['playing']})
                 return nowPlaying
 
