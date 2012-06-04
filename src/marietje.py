@@ -69,10 +69,7 @@ class MarietjeClientChannel(JoyceChannel):
                                 self.requests = data.get('requests')
                                 self.s.on_queue_retrieved.notify()
                 else:
-                        print "Data of type: ", data.get('type')
-                        print "========================="
-                        print data
-                        print "========================="
+                        self.l.warn("Unrecognised data of type %s: %s" % (data.get('type'), str(data)))
 
 class MarietjeClient(Module):
         """ Almost direct interface to the Marietje protocol """
