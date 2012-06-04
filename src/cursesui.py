@@ -354,7 +354,7 @@ class SearchWindow(ScrollingColsWindow):
                         iend = min(iend, end)
                         if istart == iend: continue
                         self.w.attron(colors[3 if m else 0])
-                        self.w.addstr(val[istart:iend])
+                        self.w.addstr(val[istart:iend].encode("ascii","replace"))
                         self.w.attroff(colors[3 if m else 0])
         
         def set_query(self, q):
