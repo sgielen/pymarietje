@@ -546,8 +546,11 @@ class CursesMarietje:
                         self.options['marietje'] = dict()
                 if not 'username' in self.options['marietje']:
                         self.options['marietje']['username'] = os.getlogin()
+                if not 'password' in self.options['marietje']:
+                        self.options['marietje']['password'] = ""
 
                 self.m = Marietje(self.options['marietje']['username'],
+                                self.options['marietje']['password'],
                                 queueCb=self.on_queue_fetched,
                                 songCb=self.on_songs_fetched,
                                 playingCb=self.on_playing_fetched,

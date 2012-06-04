@@ -1,5 +1,6 @@
 from __future__ import with_statement
 import threading
+import hashlib
 from joyce.comet import CometJoyceClient
 from joyce.base import JoyceChannel
 from mirte.threadPool import ThreadPool
@@ -37,6 +38,10 @@ class MarietjeClientChannel(JoyceChannel):
                 self.partialMedia = []
                 self._partialMedia = []
                 self._partialMediaSize = None
+                self.loginToken = None
+                self.loginError = None
+                self.requestError = None
+                self.accessKey = None
 
         def handle_message(self, data):
                 if data.get('type') == 'media_part':
@@ -68,6 +73,20 @@ class MarietjeClientChannel(JoyceChannel):
                         with self.s.on_queue_retrieved:
                                 self.requests = data.get('requests')
                                 self.s.on_queue_retrieved.notify()
+                elif data.get('type') == 'error_login':
+                        with self.s.on_login_attempt:
+                                self.loginError = MarietjeException(data.get('message'))
+                                self.s.on_login_attempt.notify()
+                elif data.get('type') == 'logged_in':
+                        with self.s.on_login_attempt:
+                                self.accessKey = data.get('accessKey')
+                                self.s.on_login_attempt.notify()
+                elif data.get('type') == 'login_token':
+                        with self.s.on_login_attempt:
+                                self.loginToken = data.get('login_token')
+                                self.s.on_login_attempt.notify()
+                elif data.get('type') == 'error_request':
+                        self.channel.requestError = MarietjeException(data.get('message'))
                 else:
                         self.l.warn("Unrecognised data of type %s: %s" % (data.get('type'), str(data)))
 
@@ -84,6 +103,7 @@ class MarietjeClient(Module):
                 self.on_queue_retrieved = threading.Condition()
                 self.on_playing_retrieved = threading.Condition()
                 self.on_tracks_retrieved = threading.Condition()
+                self.on_login_attempt = threading.Condition()
 
         def get_queue(self):
                 """ Returns a list of ( artist, title, length, requestedBy )
@@ -132,13 +152,36 @@ class MarietjeClient(Module):
                                 res.append((media.get('key'), media.get('artist'), media.get('title'), None))
                 return res
 
-        def request_track(self, trackId, user):
+        def login(self, username, password):
+                """ Tries to log in. Throws a MarietjeLoginException if it
+                didn't work for some reason. Sets self.accesskey on success """
+                with self.on_login_attempt:
+                        self.channel.send_message({'type': 'request_login_token'})
+                        self.on_login_attempt.wait()
+                        token = self.channel.loginToken
+                        hashed = hashlib.md5(password + token).hexdigest()
+                        self.channel.send_message({
+                                'type': 'login',
+                                'username': username,
+                                'hash': hashed
+                        })
+                        self.on_login_attempt.wait()
+                        if not self.channel.loginError is None:
+                                raise self.channel.loginError
+                        self.accesskey = self.channel.accessKey
+
+        def request_track(self, trackId, user, password):
                 """ Requests the song <trackId> under the username <user> """
+                self.login(user, password)
                 self.channel.send_message({
                         'type': 'request',
                         'mediaKey': trackId,
                 })
-                # TODO: wait until channel is done
+                # retrieve a queue (if the request was successful, an error
+                # will be sent before this)
+                self.get_queue()
+                if not self.channel.requestError is None:
+                        raise self.channel.requestError
 
         def upload_track(self, artist, title, user, size, f):
                 """ Uploads <size> bytes of <f> as the track 
@@ -149,7 +192,7 @@ class Marietje:
         """ A more convenient interface to Marietje.
             NOTE, even though there is a ton of threading.* goodness in here,
                   this class is not to be used by several threads at a time """
-        def __init__(self, username, queueCb=None, songCb=None, playingCb=None,
+        def __init__(self, username, password, queueCb=None, songCb=None, playingCb=None,
                         host=DEFAULT_HOST, port=DEFAULT_PORT, path=DEFAULT_PATH,
                         charset=DEFAULT_LS_CHARSET):
                 """ <xCb> is a callback for when x is fetched;
@@ -178,6 +221,7 @@ class Marietje:
                 self.cs = charset
                 self.cs_lut = set(charset)
                 self.username = username
+                self.password = password
                 self.l = logging.getLogger('Marietje')
         
         def _sanitize(self, txt):
@@ -363,7 +407,7 @@ class Marietje:
 
         def request_track(self, track_id):
                 """ Requests the track with id <track_id> """
-                self.client.request_track(track_id, self.username)
+                self.client.request_track(track_id, self.username, self.password)
         
         def upload_track(self, artist, title, size, f):
                 """ Uploads a track in <f> with <size> to marietje as
@@ -378,10 +422,11 @@ if __name__ == '__main__':
                 print m.queue
         def print_songs():
                 print len(m.songs), "songs received"
+                m.request_track(next(m.songs.iterkeys()))
         def print_playing():
                 print "Playing received"
                 print m.nowPlaying
 
-        m = Marietje("marietje", print_queue, print_songs, print_playing)
+        m = Marietje("marietje", "", print_queue, print_songs, print_playing)
         m.start_fetch()
 # vim: et:sta:bs=2:sw=8:
