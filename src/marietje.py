@@ -88,15 +88,6 @@ class MarietjeClient(Module):
                 self.on_playing_retrieved = threading.Condition()
                 self.on_tracks_retrieved = threading.Condition()
 
-        def check_login(self, username):
-                """ Checks whether <username> is allowed on marietje """
-                self.channel.send_message({
-                        'type': 'login',
-                        'username': username,
-                        'hash': None, # TODO
-                })
-                # TODO: wait for result
-        
         def get_queue(self):
                 """ Returns a list of ( artist, title, length, requestedBy )
                 tuples. """
