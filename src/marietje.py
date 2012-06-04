@@ -387,3 +387,4 @@ if __name__ == '__main__':
 
         m = Marietje("marietje", print_queue, print_songs, print_playing)
         m.start_fetch()
+# vim: et:sta:bs=2:sw=8:
